@@ -2,6 +2,8 @@
 
 Next.js + Tailwind, styled like a TUI with the Selenized Light palette. `babel` is on the left, `waka` on the right. Red alerts appear in the bordered summary; aligned green/yellow/red bullets show individual check results.
 
+The compact, full-width UI uses bundled Aporetic Serif (SIL Open Font License; see `public/fonts/LICENSE.md`). Zellij sessions show names, compact ages, and colored active/current/exited states.
+
 ## Run locally
 
 ```sh
