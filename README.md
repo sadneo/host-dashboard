@@ -1,12 +1,13 @@
 # Host dashboard
 
-Next.js + Tailwind, styled like a TUI with the Selenized Light palette. `babel` is on the left, `waka` on the right. Red alerts appear in the bordered summary; aligned green/yellow/red bullets show individual check results.
+Four views share a monospace, hard-bordered Selenized Light shell. Green means healthy, yellow noteworthy, red failed, gray metadata/unavailable, and blue selected/actionable. Babel is always left of Waka.
 
-The compact, full-width UI uses bundled Aporetic Serif (SIL Open Font License; see `public/fonts/LICENSE.md`). Zellij sessions show names, compact ages, and colored active/current/exited states.
+- **1 Main:** compact host/deployment and Waka network strips, up to six project comparisons, recent commits/active Zellij directories, and at most three actionable attention items. RAM/disk/load appear only when abnormal.
+- **2 Projects:** symmetric cross-host evidence, all/active/dirty/diverged/config filters, worktrees, upstream counts, and activity-based primary-workspace hints. Dotfiles and NixOS use the same layout under CONFIG. Select a project for the bottom file/activity inspector; Esc closes it.
+- **3 Desktop:** Babel GPU/model overview and selected service dependency chain, listener/PID, restart/result fields, and collapsed journal output. `[run checks]` refreshes collection; it does not restart services.
+- **4 Network:** explicit sequential diagnostic run on Waka with timings, progress, failed context expanded, derived diagnoses, and one contiguous copy/screenshot report. Switching tabs retains results; cancellation retains partial evidence. Copy uses the clipboard with a selectable-text fallback.
 
-The homepage keeps one line per repository/session and three host-health lines. Click a repository for commit, change, worktree, and NixOS details; click GPU/AI rows for process/model details. Exited sessions are grouped in a gray disclosure. Technical errors and missing optional counters live under each host's **Diagnostics**. Green means healthy/active/clean, yellow changed/stale/unusual, red failed/unavailable, and gray inactive/informational.
-
-Summary shows online count and up to three attention rows, prioritizing offline hosts, failed units, collection failures, resource pressure, inactive configured llama services, behind worktrees, and ahead NixOS repos. Lower-priority items collapse behind an overflow disclosure; optional GPU/model/counter availability does not generate summary warnings.
+Press 1–4 to switch views. Main targets a single desktop viewport; small screens scroll. No fabricated time-worked metrics are used.
 
 ## Run locally
 
@@ -17,7 +18,7 @@ pnpm build
 pnpm start
 ```
 
-Open <http://127.0.0.1:3000>. For development, use `pnpm dev` instead. The server binds only to loopback.
+Open <http://127.0.0.1:7582>. For development, use `pnpm dev` instead. The server binds only to loopback.
 
 ## Configuration and host collection
 
@@ -52,6 +53,11 @@ Additional settings:
 - `llamaUrl`: local llama.cpp server address on each target (default `http://127.0.0.1:8080`). Read-only `/health` and `/v1/models` checks distinguish API-reported loaded models from model paths in process arguments; unavailable servers are labeled rather than guessed.
 - `zellijCachePath`: cache root for exited sessions' saved layouts.
 - `procPath`: `/proc`, configurable for collector fixtures.
+- `services`: personally relevant Babel services with `name`, `unit`, optional `user`, `url` or `port`, `networkUrl` for optional Waka-to-service checks, and `backend: true` for the configured llama.cpp dependency. Current Babel addresses were verified as SillyTavern `3829` and llama.cpp router `23785`; the latter is loopback-only. Adjust these addresses/unit names to your installation. This probes the configured backend, not SillyTavern's internally selected provider.
+
+Full network checks additionally use `ip`, `iw` (or NetworkManager's `nmcli` for Wi-Fi evidence), `ping`, `networkctl`, `resolvectl`, `getent`, `curl`, `tracepath`, and `tailscale` on Waka. Missing tools are recorded as unavailable rather than connectivity failures. Each subprocess has a five-second deadline; the run has a three-minute limit. TCP/TLS and UDP/TCP/DoT DNS queries use Node directly, with no `dig`/`kdig` dependency. DNS wire probes report response codes, answer counts, and raw response bytes. DoT-blocked interpretation requires normal DNS success, failing configured DoT, failing system resolution, and an explicit DoT-required resolver setting. Profile is read from `/etc/specialisation`, a running-system marker, or a kernel argument; absent markers are unknown rather than guessed.
+
+Cross-host relationships use full HEAD hashes and up to 2,000 ancestor hashes per host, with unknown ancestry explicitly labeled. Seven-day activity includes up to 50 commits per repository per host; shared commits are deduplicated in Main. Divergence does not imply unpublished work without remote evidence. Upstream comparisons use locally cached refs and never fetch.
 
 Each `hosts` entry can override these common settings, e.g. `{"name":"waka","inference":true,"llamaUrl":"http://127.0.0.1:8081"}`. AI/GPU monitoring is enabled on both hosts. Set `inference` to false to hide it for either host. Mark the NixOS repository with `"nixos": true` to display its current flake Git revision in host health.
 
@@ -59,7 +65,7 @@ Each `hosts` entry can override these common settings, e.g. `{"name":"waka","inf
 
 Host health includes uptime, 1/5/15-minute load averages and CPU count, RAM usage using Linux `MemAvailable`, disk usage and available space, and failed **system and user** systemd units. RAM/disk usage warns at 85%; load warns when the one-minute average exceeds the CPU count. NixOS shows the latest system-profile generation and its update age separately from the running system's version. The flake HEAD is the local NixOS repository revision; a deployed configuration revision is shown only when the system records it under `/run/current-system/configuration-revision`.
 
-Repositories include the last commit hash/subject/age and staged, unstaged, and untracked counts. Expand a change-count row to see filenames and Git status codes. Linked worktrees appear as nested rows with their own branches, changes, divergence, and commits. Stale/prunable registrations are displayed without modifying or pruning them.
+Repositories include the last commit hash/subject/age and staged, unstaged, and untracked counts. Open the bottom inspector to see filenames and Git status codes. Linked worktrees carry their own branches, changes, divergence, and commits. Stale/prunable registrations are displayed without modifying or pruning them.
 
 Zellij directories come from each live session's dumped layout; exited sessions use saved layouts and are labeled accordingly. Multiple pane directories are retained. Long paths abbreviate earlier components fish-style while preserving the final directory; hover for the full home-relative path. Unavailable directories are explicit.
 
@@ -71,13 +77,46 @@ The server starts a collection immediately and repeats on a two-second cadence w
 
 ## Desktop entry
 
+### Nix package
+
+Build and launch the package without installing it:
+
+```sh
+nix build path:.
+./result/bin/host-dashboard
+```
+
+The package includes the production server, Node, collection tools, fonts, and a
+`Host Dashboard` desktop entry for Fuzzel. It supports `x86_64-linux` and
+`aarch64-linux`. LibreWolf must be installed and available on your desktop PATH;
+it is not a build or package dependency. If missing, the launcher prints a friendly
+error with the URL to open manually.
+The launcher binds to `127.0.0.1:7582`, reuses a running server, and opens LibreWolf.
+Logs live at `$XDG_CACHE_HOME/host-dashboard/server.log`, defaulting to
+`~/.cache/host-dashboard/server.log`. The server stays running after LibreWolf closes.
+Configuration is bundled from `dashboard.config.json`; rebuild to change it.
+
+To verify the package without opening a browser (port 7582 must be unused):
+
+```sh
+nix develop --command node test/package-smoke.mjs "$(nix build path:. --no-link --print-out-paths)"
+```
+
+This checks cold launch, repeated launch, LibreWolf invocation using a test stub,
+the friendly missing-browser error,
+the desktop entry, static assets, fonts, and live host collection. It stops its
+test server afterward. `host-dashboard --no-browser` starts the server without
+opening LibreWolf for manual diagnostics.
+
+### Checkout-based installation
+
 After building, run inside the Nix development shell:
 
 ```sh
 node scripts/launch.mjs --install
 ```
 
-This installs `Host Dashboard` in your application menu. It starts a background localhost production server if needed, waits for it, and opens Firefox. Logs live at `~/.cache/host-dashboard/server.log` (or `$XDG_CACHE_HOME/host-dashboard/server.log`). The entry records the current Node executable and checkout path; reinstall it if either moves. Firefox must be available on the desktop PATH. The server stays running after closing the browser.
+This installs `Host Dashboard` in your application menu. It starts a background localhost production server if needed, waits for it, and opens LibreWolf. Logs live at `~/.cache/host-dashboard/server.log` (or `$XDG_CACHE_HOME/host-dashboard/server.log`). The entry records the current Node executable and checkout path; reinstall it if either moves. LibreWolf must be available on the desktop PATH. The server stays running after closing the browser.
 
 ## Checks
 
