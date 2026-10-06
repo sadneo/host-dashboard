@@ -1,0 +1,13 @@
+{
+  "name": "host-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": { "next": "^16.2.9", "react": "^19.2.0", "react-dom": "^19.2.0" },
+  "devDependencies": { "tailwindcss": "^4.1.0", "@tailwindcss/postcss": "^4.1.0" }
+}

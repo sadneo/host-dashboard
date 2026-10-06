@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --bg: #fbf3db;
+  --panel: #ece3cc;
+  --muted: #909995;
+  --text: #53676d;
+  --strong: #3a4d53;
+  --green: #489100;
+  --yellow: #ad8900;
+  --red: #d2212d;
+  --blue: #0072d4;
+}
+body { background: var(--bg); color: var(--text); font: 14px/1.7 "DejaVu Sans Mono", "Liberation Mono", monospace; }
+fieldset { border: 1px solid var(--muted); padding: 1.2rem 1.4rem 1.5rem; min-width: 0; }
+legend { padding: 0 .65rem; color: var(--strong); font-weight: bold; }
+h2 { color: var(--strong); font-weight: bold; margin-bottom: .55rem; }
+.section + .section { border-top: 1px dashed var(--muted); margin-top: 1.4rem; padding-top: 1.2rem; }
+.row { display: grid; grid-template-columns: .65rem minmax(0, 1fr); gap: .65rem; align-items: baseline; margin: .4rem 0; }
+.dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); display: inline-block; }
+.ok { color: var(--green); } .warning { color: var(--yellow); } .error { color: var(--red); }
+.dot.ok { background: var(--green); } .dot.warning { background: var(--yellow); } .dot.error { background: var(--red); }
+.dim { color: var(--text); opacity: .8; }
+.strong { color: var(--strong); }
+.tag { background: var(--panel); padding: .1rem .45rem; font-size: 12px; }
+button { cursor: pointer; color: var(--blue); }
+button:hover { text-decoration: underline; }
+button:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+progress { width: 100%; height: .6rem; accent-color: var(--blue); }
+progress::-webkit-progress-bar { background: var(--panel); }
+progress::-webkit-progress-value { background: var(--blue); }
+progress::-moz-progress-bar { background: var(--blue); }
+@media (max-width: 600px) { fieldset { padding: .8rem; } body { font-size: 12px; } }
