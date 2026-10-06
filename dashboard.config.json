@@ -1,6 +1,6 @@
 {
   "hosts": [
-    { "name": "babel", "inference": true },
+    { "name": "babel", "inference": true, "llamaUrl": "http://127.0.0.1:23785" },
     { "name": "waka", "inference": true }
   ],
   "projects": [
@@ -19,5 +19,11 @@
   "diskPaths": ["/", "~aidan"],
   "staleRepoDays": 30,
   "llamaUrl": "http://127.0.0.1:8080",
-  "zellijCachePath": "~/.cache/zellij"
+  "zellijCachePath": "~/.cache/zellij",
+  "services": [
+    { "name": "SillyTavern", "unit": "sillytavern.service", "url": "http://127.0.0.1:3829", "networkUrl": "http://babel:3829", "backend": true },
+    { "name": "llama.cpp", "unit": "llama-cpp.service", "url": "http://127.0.0.1:23785/health" },
+    { "name": "dashboard", "unit": "dashboard.service", "url": "http://127.0.0.1:7582" },
+    { "name": "SSH", "unit": "sshd.service", "port": 22 }
+  ]
 }

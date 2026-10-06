@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { readFile, readdir, readlink, statfs, lstat } from 'node:fs/promises';
 import { homedir, hostname, uptime, loadavg, cpus } from 'node:os';
 import { join, basename, dirname, isAbsolute, resolve } from 'node:path';
+import { createConnection } from 'node:net';
 
 const exec = promisify(execFile);
 const home = homedir();
@@ -36,19 +37,25 @@ if (!config || !Array.isArray(config.hosts) || !config.hosts.every(h => h && typ
 const currentHost = config.hosts.find(host => host.name === hostname().split('.')[0]);
 if (!currentHost) { console.error(`Hostname ${hostname()} is not in dashboard.config.json.`); process.exit(1); }
 config = { procPath: '/proc', diskPaths: ['/'], staleRepoDays: 30, zellijCachePath: '~/.cache/zellij', ...config, ...currentHost };
+const validUrl = value => { try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; } };
 if (!Array.isArray(config.diskPaths) || !config.diskPaths.every(p => typeof p === 'string') ||
     !Number.isFinite(config.staleRepoDays) || config.staleRepoDays < 0 || typeof config.procPath !== 'string' ||
-    typeof config.zellijCachePath !== 'string' || (config.llamaUrl != null && typeof config.llamaUrl !== 'string')) {
+    typeof config.zellijCachePath !== 'string' || (config.llamaUrl != null && !validUrl(config.llamaUrl)) ||
+    (config.services != null && (!Array.isArray(config.services) || !config.services.every(s => s && typeof s.name === 'string' && typeof s.unit === 'string' &&
+      (s.url ? validUrl(s.url) : Number.isInteger(s.port) && s.port > 0 && s.port <= 65535))))) {
   console.error('Invalid health/AI settings in dashboard.config.json.'); process.exit(1);
 }
 const optionalRead = async path => { try { return (await readFile(path, 'utf8')).trim(); } catch { return null; } };
 const displayPath = path => path === home ? '~' : path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path;
 
 async function repoState(location, name) {
-  const [status, branch, log] = await Promise.all([
+  const [status, branch, log, history, recent, upstream] = await Promise.all([
     run('git', [...location, 'status', '--porcelain=v1', '--branch']),
     run('git', [...location, 'rev-parse', '--abbrev-ref', 'HEAD']),
-    run('git', [...location, 'log', '-1', '--format=%h%x00%ct%x00%s']),
+    run('git', [...location, 'log', '-1', '--format=%H%x00%ct%x00%s']),
+    run('git', [...location, 'rev-list', '--max-count=2000', 'HEAD']),
+    run('git', [...location, 'log', '--since=7.days', '--max-count=50', '--format=%H%x00%ct%x00%s']),
+    run('git', [...location, 'rev-parse', '--symbolic-full-name', '@{upstream}']).catch(() => ''),
   ]);
   const [header, ...lines] = status.split('\n');
   const changes = lines.filter(Boolean).map(line => ({ status: line.slice(0, 2), path: line.slice(3) }));
@@ -60,7 +67,9 @@ async function repoState(location, name) {
   const [hash, timestamp, subject] = log.split('\0');
   const ageSeconds = Math.max(0, Date.now() / 1000 - Number(timestamp));
   const stale = !dirty && ageSeconds >= config.staleRepoDays * 86400;
-  return { name, branch, dirty, ahead, behind, hasUpstream, changes,
+  // ponytail: ancestry is capped at 2000 commits; report unknown rather than infer divergence beyond that window.
+  return { name, branch, dirty, ahead, behind, hasUpstream, changes, upstream: upstream.replace(/^refs\/remotes\//, ''),
+    history: history.split('\n'), recent: recent ? recent.split('\n').map(line => { const [hash, time, subject] = line.split('\0'); return { hash, subject, ageSeconds: Math.max(0, Date.now() / 1000 - Number(time)) }; }) : [],
     staged: changes.filter(c => ![' ', '?'].includes(c.status[0])).length,
     unstaged: changes.filter(c => ![' ', '?'].includes(c.status[1])).length,
     untracked: changes.filter(c => c.status === '??').length,
@@ -174,7 +183,8 @@ async function health() {
     const ageSeconds = Math.max(0, (Date.now() - (await lstat(join('/nix/var/nix/profiles', profile))).mtimeMs) / 1000);
     const deployedRevision = await optionalRead('/run/current-system/configuration-revision');
     checks.push({ name: 'NixOS', level: 'ok', detail: `profile gen ${generation || '?'} · ${version.trim()}`, generationAgeSeconds: ageSeconds });
-    return { checks, failedUnits, nixos: { generation, ageSeconds, version: version.trim(), running, deployedRevision } };
+    const specialization = await optionalRead('/etc/specialisation') || await optionalRead('/run/current-system/specialisation-name') || (await optionalRead('/proc/cmdline'))?.match(/(?:specialisation|specialization)=([^ ]+)/)?.[1] || 'unknown';
+    return { checks, failedUnits, nixos: { generation, ageSeconds, version: version.trim(), running, deployedRevision, specialization } };
   } catch (error) { checks.push({ name: 'NixOS', level: 'warning', detail: message(error) }); }
   return { checks, failedUnits };
 }
@@ -258,11 +268,52 @@ async function gpu() {
   } catch (error) { return { gpus: [], gpuError: message(error) }; }
 }
 
-const [projectChecks, configRepos, sessions, llamaStatus, gpuStatus, hostHealth, aiStatus] = await Promise.all([
+const tcp = (host, port) => new Promise(resolve => {
+  const socket = createConnection({ host, port });
+  const finish = ok => { socket.destroy(); resolve(ok); };
+  socket.setTimeout(1000); socket.once('connect', () => finish(true)); socket.once('error', () => finish(false)); socket.once('timeout', () => finish(false));
+});
+async function services() {
+  const listeners = await run('ss', ['-ltnp']).catch(message);
+  return Promise.all((config.services || []).map(async service => {
+    const raw = await run('systemctl', [...(service.user ? ['--user'] : []), 'show', service.unit, '--property=LoadState,ActiveState,SubState,MainPID,NRestarts,Result,ExecMainStatus']).catch(message);
+    const properties = Object.fromEntries(raw.split('\n').filter(line => line.includes('=')).map(line => line.split('=')));
+    const url = service.url ? new URL(service.url) : null;
+    const port = Number(url?.port || (url ? url.protocol === 'https:' ? 443 : 80 : service.port));
+    const listening = await tcp(url?.hostname || '127.0.0.1', port);
+    let http = null, httpDetail = 'No HTTP endpoint configured';
+    if (url) try { const response = await fetch(url, { signal: AbortSignal.timeout(1000) }); http = response.ok; httpDetail = `HTTP ${response.status}`; await response.body?.cancel(); } catch (error) { http = false; httpDetail = message(error); }
+    let backend = null;
+    if (service.backend) try { const response = await fetch(`${config.llamaUrl}/health`, { signal: AbortSignal.timeout(1000) }); backend = response.ok; await response.body?.cancel(); } catch { backend = false; }
+    const listener = listeners.split('\n').filter(line => line.match(new RegExp(`:${port}\\b`))).join('\n');
+    const process = properties.ActiveState === 'active' || Number(properties.MainPID) > 0 || /pid=\d+/.test(listener) ? true : properties.LoadState === 'loaded' ? false : null;
+    const state = properties.ActiveState === 'failed' ? 'failed' : !process && !listening ? 'stopped' : !listening || http === false || backend === false ? 'degraded' : 'healthy';
+    const journal = await run('journalctl', [...(service.user ? ['--user'] : []), '-u', service.unit, '-n', '12', '--no-pager', '-o', 'short-iso']).catch(message);
+    return { ...service, backendUrl: service.backend ? config.llamaUrl : null, properties, raw, listener, journal, listening, http, httpDetail, backend, process, state,
+      diagnosis: backend === false && http ? 'SillyTavern itself is healthy; model backend is unavailable.' : process && !listening ? 'Process exists but port is not listening.' : state === 'healthy' ? 'All configured dependency checks passed.' : `${service.name} ${state}; inspect the failed stage.` };
+  }));
+}
+async function network() {
+  const route = await run('ip', ['-j', 'route', 'show', 'default']).then(JSON.parse).catch(() => []);
+  const iface = route[0]?.dev;
+  const wifi = iface ? await run('iw', ['dev', iface, 'link']).catch(message) : '';
+  const nmWifi = wifi.match(/SSID: (.+)/) ? '' : await run('nmcli', ['-t', '-f', 'ACTIVE,SSID', 'dev', 'wifi', 'list', '--rescan', 'no']).catch(() => '');
+  const check = async (command, args) => { try { await run(command, args); return true; } catch { return false; } };
+  const [gateway, ip, dns, https] = await Promise.all([
+    route[0]?.gateway ? check('ping', ['-c', '1', '-W', '1', route[0].gateway]) : null,
+    tcp('1.1.1.1', 443), check('getent', ['ahostsv4', 'example.com']),
+    fetch('https://example.com', { signal: AbortSignal.timeout(1500) }).then(async r => { await r.body?.cancel(); return r.ok; }).catch(() => false),
+  ]);
+  return { interface: iface || 'unknown', ssid: wifi.match(/SSID: (.+)/)?.[1] || nmWifi.match(/^yes:(.+)$/m)?.[1] || 'unknown', gateway, ip, dns, https,
+    diagnosis: !iface ? 'No default route' : !ip ? 'Internet-by-IP unavailable' : !dns ? 'DNS / resolver failure' : !https ? 'HTTPS failing' : 'network healthy' };
+}
+
+const [projectChecks, configRepos, sessions, llamaStatus, gpuStatus, hostHealth, aiStatus, serviceStatus, networkStatus] = await Promise.all([
   config.projects.length ? Promise.all(config.projects.map(r => repo(r.path, r.name, r.workTree))) : [{ name: 'Projects', level: 'warning', detail: 'No project repositories configured.' }],
   Promise.all(config.configRepos.map(r => repo(r.path, r.name, r.workTree))),
   zellij(), currentHost.inference ? llama() : null, currentHost.inference ? gpu() : { gpus: [] },
   health(), currentHost.inference ? ai() : null,
+  currentHost.name === 'babel' ? services() : [], currentHost.name === 'waka' ? network() : null,
 ]);
 console.log(JSON.stringify({ projects: projectChecks, configRepos, zellij: sessions, llama: llamaStatus,
-  health: hostHealth, ai: aiStatus, ...gpuStatus }));
+  health: hostHealth, ai: aiStatus, services: serviceStatus, network: networkStatus, ...gpuStatus }));
