@@ -1,0 +1,18 @@
+{
+  "hosts": [
+    { "name": "babel", "inference": true },
+    { "name": "waka", "inference": false }
+  ],
+  "projects": [
+    { "name": "comfy-room", "path": "~aidan/Projects/comfy-room" },
+    { "name": "pebble", "path": "~aidan/Projects/pebble" },
+    { "name": "discordfs", "path": "~aidan/Projects/discordfs" }
+  ],
+  "configRepos": [
+    { "name": "dotfiles", "path": "~aidan/.dotfiles", "workTree": "~aidan" },
+    { "name": "nixos", "path": "/etc/nixos" }
+  ],
+  "llamaService": "llama-cpp.service",
+  "llamaUserService": false,
+  "gpuSysfsPath": "/sys/class/drm"
+}

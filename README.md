@@ -13,27 +13,33 @@ pnpm start
 
 Open <http://127.0.0.1:3000>. For development, use `pnpm dev` instead. The server binds only to loopback.
 
-## Connect the hosts
+## Configuration and host collection
 
-`babel` and `waka` must resolve through Tailscale MagicDNS (or your SSH configuration). Set up key-based SSH and accept each host's key interactively first:
+Edit **`dashboard.config.json`** for both the frontend and backend. `hosts` lists the column order and displayed/SSH hostnames. The host with `"inference": true` shows llama-cpp and AMD VRAM. Rename hosts here when renaming a machine; names should match the machine's short OS hostname and resolve through Tailscale MagicDNS (or SSH configuration). Rebuild and restart after changing this file.
 
-```sh
-ssh babel true
-ssh waka true
-```
-
-The SSH account needs `node` (20+), `git`, and `zellij` on its **non-interactive SSH PATH**. On babel, `systemctl` and `nvidia-smi` provide llama-cpp and NVIDIA VRAM status. Missing tools or repositories are shown as alerts/warnings, never as successful checks. The development flake is for this local app; install collector tools on each host separately.
-
-The server sends `scripts/collect-status.mjs` to each host over SSH stdin and executes it with Node. No remote script installation is needed. Check it manually:
+Both scripts detect the current OS hostname automatically. On waka, collection runs locally for waka and over SSH only for babel; on babel, collection runs locally for babel and over SSH only for waka. No SSH connection to yourself is needed. Set up key-based SSH and accept the **other** host's key interactively:
 
 ```sh
-ssh -T babel 'node --input-type=module' < scripts/collect-status.mjs
-ssh -T waka 'node --input-type=module' < scripts/collect-status.mjs
+ssh babel true # when running on waka
+ssh waka true  # when running on babel
 ```
 
-On **each host**, copy `host-config.example.json` to `~/.config/dashboard.json` and adjust repository paths and the systemd service name. Without configuration, the collector discovers immediate Git repository directories in `~/Projects` and checks `~/dot` and `~/nixos`. For an explicit project list, set `"projects": ["~/Projects/dashboard", "~/other/repo"]`. Set `"llamaUserService": true` for a user service. If babel's OS hostname differs from its Tailscale name, set `"babel": true` in its config.
+The remote SSH account needs `node` (22+), `git`, and `zellij` on its **non-interactive SSH PATH**. Local collection uses the dashboard's Node executable and inherited PATH. `systemctl` provides llama-cpp status; AMD VRAM is read directly from the kernel's `mem_info_vram_used` and `mem_info_vram_total` files under `/sys/class/drm/card*/device`, filtering AMD's vendor ID `0x1002`. No GPU utility package is needed. Missing tools or repositories are shown as alerts/warnings.
 
-Git checks are local: branch, dirty files, merge conflicts, ahead/behind relative to the **last fetched** upstream. They do not fetch or modify repositories. No upstream is a warning. Merge conflicts and failed checks are red; dirty or diverged repositories are yellow. Zellij lists all sessions, including exited sessions. VRAM is reported per GPU in GiB, with a warning at 90% usage.
+The server sends `scripts/collect-status.mjs` **and the shared configuration** over stdin to local Node or remote SSH/Node. No remote script or config installation is needed. Check local collection or both hosts manually:
+
+```sh
+node scripts/collect-status.mjs
+node --input-type=module -e 'import { snapshot } from "./lib/status.mjs"; console.log(JSON.stringify(await snapshot(), null, 2))'
+```
+
+The shared `projects` and `configRepos` lists configure names and paths for both computers. Defaults are `~aidan/Projects/comfy-room`, `~aidan/Projects/pebble`, `~aidan/Projects/discordfs`, `~aidan/.dotfiles`, and `/etc/nixos`. Use repository roots or their `.git` paths. `~/` means the executing account's home; `~aidan/` resolves aidan's home from `/etc/passwd` on the target machine.
+
+For separate Git directories, set `workTree` alongside `path`. Dotfiles defaults to `"path": "~aidan/.dotfiles", "workTree": "~aidan"`, so Git checks the home-directory worktree with the correct Git directory.
+
+`llamaService` changes the systemd unit name; `llamaUserService` selects a user service. `gpuSysfsPath` normally stays `/sys/class/drm`. An unknown OS hostname or malformed configuration produces an explicit collection error. The old per-host `~/.config/dashboard.json` is no longer used.
+
+Git checks read each target's repositories: branch, dirty files, merge conflicts, ahead/behind relative to the **last fetched** upstream. They do not fetch or modify repositories. No upstream is a warning. Merge conflicts and failed checks are red; dirty or diverged repositories are yellow. Zellij lists all sessions, including exited sessions. AMD VRAM is reported per GPU in GiB, with a warning at 90% usage.
 
 The server starts a collection immediately and repeats on a two-second cadence while a browser is connected, streaming JSON via server-sent events. Slow checks never overlap within a connection; SSH checks time out after eight seconds. A disconnected browser displays a stale-data alert and reconnects automatically.
 

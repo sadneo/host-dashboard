@@ -4,6 +4,7 @@ import { openSync, closeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import config from '../dashboard.config.json' with { type: 'json' };
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const url = 'http://127.0.0.1:3000';
@@ -13,7 +14,7 @@ if (process.argv.includes('--install')) {
   const directory = join(process.env.XDG_DATA_HOME || join(homedir(), '.local/share'), 'applications');
   await mkdir(directory, { recursive: true });
   const path = join(directory, 'host-dashboard.desktop');
-  await writeFile(path, `[Desktop Entry]\nType=Application\nName=Host Dashboard\nComment=Live babel and waka status\nExec=${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))}\nIcon=utilities-terminal\nTerminal=false\nCategories=System;Monitor;\n`);
+  await writeFile(path, `[Desktop Entry]\nType=Application\nName=Host Dashboard\nComment=Live ${config.hosts.map(host => host.name).join(' and ')} status\nExec=${quote(process.execPath)} ${quote(fileURLToPath(import.meta.url))}\nIcon=utilities-terminal\nTerminal=false\nCategories=System;Monitor;\n`);
   console.log(`Installed ${path}`);
 } else {
   try {
