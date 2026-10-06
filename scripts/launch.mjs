@@ -31,6 +31,7 @@ if (process.argv.includes('--install')) {
       const standalone = await stat(join(root, 'server.js')).then(() => true, () => false);
       const args = standalone ? [join(root, 'server.js')]
         : [join(root, 'node_modules/next/dist/bin/next'), 'start', '--hostname', '127.0.0.1', '--port', '7582'];
+      if (!process.argv.includes('--no-browser')) args.unshift('--import', join(root, 'scripts/server-lifecycle.mjs'));
       const child = spawn(process.execPath, args,
         { cwd: root, env: { ...process.env, HOSTNAME: '127.0.0.1', PORT: '7582' }, detached: true, stdio: ['ignore', log, log] });
       closeSync(log);

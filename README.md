@@ -93,7 +93,9 @@ it is not a build or package dependency. If missing, the launcher prints a frien
 error with the URL to open manually.
 The launcher binds to `127.0.0.1:7582`, reuses a running server, and opens LibreWolf.
 Logs live at `$XDG_CACHE_HOME/host-dashboard/server.log`, defaulting to
-`~/.cache/host-dashboard/server.log`. The server stays running after LibreWolf closes.
+`~/.cache/host-dashboard/server.log`. Desktop-launched servers exit one second after
+the last dashboard tab disconnects. Refreshing or reconnecting cancels shutdown.
+The server allows 60 seconds for the first tab to connect after launch.
 Configuration is bundled from `dashboard.config.json`; rebuild to change it.
 
 To verify the package without opening a browser (port 7582 must be unused):
@@ -105,8 +107,10 @@ nix develop --command node test/package-smoke.mjs "$(nix build path:. --no-link 
 This checks cold launch, repeated launch, LibreWolf invocation using a test stub,
 the friendly missing-browser error,
 the desktop entry, static assets, fonts, and live host collection. It stops its
-test server afterward. `host-dashboard --no-browser` starts the server without
-opening LibreWolf for manual diagnostics.
+test server afterward, and verifies tab disconnect shutdown, multiple tabs,
+reconnection, and relaunch. `host-dashboard --no-browser` starts a persistent server
+without opening LibreWolf for manual diagnostics. An existing persistent server
+remains persistent if subsequently opened through the desktop launcher.
 
 ### Checkout-based installation
 
@@ -116,7 +120,7 @@ After building, run inside the Nix development shell:
 node scripts/launch.mjs --install
 ```
 
-This installs `Host Dashboard` in your application menu. It starts a background localhost production server if needed, waits for it, and opens LibreWolf. Logs live at `~/.cache/host-dashboard/server.log` (or `$XDG_CACHE_HOME/host-dashboard/server.log`). The entry records the current Node executable and checkout path; reinstall it if either moves. LibreWolf must be available on the desktop PATH. The server stays running after closing the browser.
+This installs `Host Dashboard` in your application menu. It starts a background localhost production server if needed, waits for it, and opens LibreWolf. Logs live at `~/.cache/host-dashboard/server.log` (or `$XDG_CACHE_HOME/host-dashboard/server.log`). The entry records the current Node executable and checkout path; reinstall it if either moves. LibreWolf must be available on the desktop PATH. The server exits one second after the last dashboard tab disconnects.
 
 ## Checks
 

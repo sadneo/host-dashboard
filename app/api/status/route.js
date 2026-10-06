@@ -6,9 +6,16 @@ export const dynamic = 'force-dynamic';
 export async function GET(request) {
   let stopped = false;
   let timer;
+  let disconnect;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(timer);
+    disconnect?.();
+  };
   const stream = new ReadableStream({
     start(controller) {
-      const stop = () => { stopped = true; clearTimeout(timer); };
+      disconnect = globalThis.dashboardConnect?.();
       request.signal.addEventListener('abort', () => {
         stop();
         try { controller.close(); } catch {}
@@ -24,7 +31,7 @@ export async function GET(request) {
       };
       void tick();
     },
-    cancel() { stopped = true; clearTimeout(timer); },
+    cancel: stop,
   });
   return new Response(stream, { headers: {
     'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform',

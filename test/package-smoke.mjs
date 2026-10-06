@@ -53,7 +53,45 @@ try {
     cwd: temp, env: { ...env, PATH: '/nonexistent' }, stdio: 'pipe', timeout: 10000,
   }), error => error.status === 1 && /LibreWolf wasn't found on your PATH/.test(error.stderr.toString()) && error.stderr.toString().includes(url));
   assert.match(await readFile(join(pkg, 'share/applications/host-dashboard.desktop'), 'utf8'), /Exec=host-dashboard/);
-  console.log(`PASS: cold launch, server reuse, LibreWolf arguments and missing-browser error, desktop entry, ${assets.length} static assets, font, and live collection`);
+  const reachable = () => fetch(url, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false);
+  const waitForStop = async () => {
+    for (let i = 0; i < 100 && await reachable(); i++) await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(await reachable(), false, 'Server did not stop');
+  };
+  process.kill(pid, 'SIGTERM');
+  await waitForStop();
+  const launch = () => {
+    execFileSync(join(pkg, 'bin/host-dashboard'), [], { cwd: temp, env, timeout: 40000 });
+  };
+  const connect = async () => {
+    const controller = new AbortController();
+    const response = await fetch(`${url}/api/status`, {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]),
+    });
+    assert.equal(response.status, 200);
+    return controller;
+  };
+  launch();
+  pid = Number(await readFile(pidFile, 'utf8'));
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert(await reachable(), 'Server stopped before its first tab connected');
+  let first = await connect();
+  const second = await connect();
+  first.abort();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert(await reachable(), 'Closing one tab stopped another tab');
+  second.abort();
+  first = await connect();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert(await reachable(), 'Reconnecting did not cancel shutdown');
+  first.abort();
+  await waitForStop();
+  launch();
+  pid = Number(await readFile(pidFile, 'utf8'));
+  const reopened = await connect();
+  reopened.abort();
+  await waitForStop();
+  console.log(`PASS: cold launch, server reuse, LibreWolf arguments and missing-browser error, desktop entry, ${assets.length} static assets, font, live collection, startup window, multiple tabs, reconnect, shutdown, and relaunch`);
 } finally {
   pid ||= await readFile(pidFile, 'utf8').then(Number, () => null);
   if (pid) { try { process.kill(pid, 'SIGTERM'); } catch {} }
