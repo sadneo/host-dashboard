@@ -23,30 +23,45 @@
 body { background: var(--bg); color: var(--text); font: 14px/1.35 "Aporetic Serif", Georgia, serif; }
 fieldset { border: 1px solid var(--muted); padding: .35rem .65rem .55rem; min-width: 0; }
 legend { padding: 0 .4rem; color: var(--strong); font-weight: bold; }
-h2 { color: var(--strong); font-weight: bold; margin-bottom: .2rem; }
+h2 { color: var(--strong); font-size: 11px; font-weight: bold; letter-spacing: .08em; text-transform: uppercase; margin-bottom: .15rem; }
+h3 { font-size: 11px; font-weight: bold; margin: .4rem 0 .15rem; }
 .section + .section { border-top: 1px dashed var(--muted); margin-top: .5rem; padding-top: .4rem; }
 .row { display: grid; grid-template-columns: .5rem minmax(0, 1fr); gap: .45rem; align-items: baseline; margin: .15rem 0; }
-.check-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .6rem; }
-.session { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 4rem; align-items: baseline; gap: .5rem; }
-.session-age { font-size: 12px; text-align: right; }
-.session-state { text-align: center; font-size: 12px; }
-.current { color: var(--blue); }
-.subrows { margin-left: .7rem; padding-left: .4rem; border-left: 1px solid var(--panel); }
-.session-paths { display: flex; flex-wrap: wrap; gap: .4rem; }
+.primary-name { color: var(--strong); font-weight: 600; }
+.secondary { color: var(--text); opacity: .8; font-size: 12px; font-weight: 400; }
+.repo-line, .session-line { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(2.5rem, .6fr) minmax(0, 1fr) 3rem .7rem; align-items: baseline; gap: .4rem; }
+.config-line { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 3rem .7rem; }
+.session-line { grid-template-columns: minmax(0, 1.2fr) 4rem minmax(0, 1fr) .7rem; }
+.row-age { text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exited-sessions .primary-name { font-weight: 400; color: var(--text); }
+.metadata-line { display: flex; justify-content: space-between; gap: .4rem; }
+.metadata-line > span:first-child, .health-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.disclosure-marker { color: var(--muted); display: inline-block; text-align: right; }
+details[open] > summary .disclosure-marker { transform: rotate(90deg); }
+.repo-disclosure > summary, .session-disclosure > summary, .health-disclosure > summary, .ai-disclosure > summary, .gpu-disclosure > summary, .exited-sessions > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+.repo-disclosure > summary:hover, .session-disclosure > summary:hover, .gpu-disclosure > summary:hover { background: var(--panel); }
+.disclosure-body { margin: .2rem 0 .4rem; padding: .2rem .4rem; background: var(--panel); overflow-wrap: anywhere; }
+.disclosure-body .disclosure-body { padding-left: .25rem; padding-right: .25rem; }
+.worktree-details { margin-top: .3rem; }
+.change-list { padding-left: .5rem; }
+.process-line { display: flex; justify-content: space-between; gap: .6rem; }
+.process-line > span:first-child { min-width: 0; }
+.process-line > span:last-child { white-space: nowrap; }
+.summary-meta { display: flex; justify-content: space-between; margin-top: .3rem; }
+.diagnostics { margin-top: .5rem; font-size: 12px; color: var(--text); }
+.diagnostics > summary { opacity: .8; }
 .change-code { white-space: pre; }
 details summary { cursor: pointer; color: var(--text); }
 details summary:focus-visible { outline: 2px solid var(--blue); }
 .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); display: inline-block; }
 .ok { color: var(--green); } .warning { color: var(--yellow); } .error { color: var(--red); }
 .dot.ok { background: var(--green); } .dot.warning { background: var(--yellow); } .dot.error { background: var(--red); }
+.dot.info { background: transparent; border: 1px solid var(--muted); }
+.info { color: var(--text); }
 .dim { color: var(--text); opacity: .8; }
 .strong { color: var(--strong); }
-.tag { background: var(--panel); padding: 0 .3rem; font-size: 12px; }
 button { cursor: pointer; color: var(--blue); }
 button:hover { text-decoration: underline; }
 button:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
-progress { width: 100%; height: .35rem; accent-color: var(--blue); }
-progress::-webkit-progress-bar { background: var(--panel); }
-progress::-webkit-progress-value { background: var(--blue); }
-progress::-moz-progress-bar { background: var(--blue); }
 @media (max-width: 600px) { fieldset { padding: .3rem .5rem .45rem; } }

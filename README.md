@@ -4,6 +4,10 @@ Next.js + Tailwind, styled like a TUI with the Selenized Light palette. `babel` 
 
 The compact, full-width UI uses bundled Aporetic Serif (SIL Open Font License; see `public/fonts/LICENSE.md`). Zellij sessions show names, compact ages, and colored active/current/exited states.
 
+The homepage keeps one line per repository/session and three host-health lines. Click a repository for commit, change, worktree, and NixOS details; click GPU/AI rows for process/model details. Exited sessions are grouped in a gray disclosure. Technical errors and missing optional counters live under each host's **Diagnostics**. Green means healthy/active/clean, yellow changed/stale/unusual, red failed/unavailable, and gray inactive/informational.
+
+Summary shows online count and up to three attention rows, prioritizing offline hosts, failed units, collection failures, resource pressure, inactive configured llama services, behind worktrees, and ahead NixOS repos. Lower-priority items collapse behind an overflow disclosure; optional GPU/model/counter availability does not generate summary warnings.
+
 ## Run locally
 
 ```sh
