@@ -1,0 +1,9 @@
+{
+  "projectRoot": "~/Projects",
+  "configRepos": [
+    { "name": "dot", "path": "~/dot" },
+    { "name": "nixos", "path": "~/nixos" }
+  ],
+  "llamaService": "llama-cpp.service",
+  "llamaUserService": false
+}
