@@ -1,7 +1,7 @@
 {
   "hosts": [
     { "name": "babel", "inference": true },
-    { "name": "waka", "inference": false }
+    { "name": "waka", "inference": true }
   ],
   "projects": [
     { "name": "comfy-room", "path": "~aidan/Projects/comfy-room" },
@@ -10,9 +10,14 @@
   ],
   "configRepos": [
     { "name": "dotfiles", "path": "~aidan/.dotfiles", "workTree": "~aidan" },
-    { "name": "nixos", "path": "/etc/nixos" }
+    { "name": "nixos", "path": "/etc/nixos", "nixos": true }
   ],
   "llamaService": "llama-cpp.service",
   "llamaUserService": false,
-  "gpuSysfsPath": "/sys/class/drm"
+  "gpuSysfsPath": "/sys/class/drm",
+  "procPath": "/proc",
+  "diskPaths": ["/", "~aidan"],
+  "staleRepoDays": 30,
+  "llamaUrl": "http://127.0.0.1:8080",
+  "zellijCachePath": "~/.cache/zellij"
 }

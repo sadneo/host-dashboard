@@ -41,6 +41,26 @@ For separate Git directories, set `workTree` alongside `path`. Dotfiles defaults
 
 `llamaService` changes the systemd unit name; `llamaUserService` selects a user service. `gpuSysfsPath` normally stays `/sys/class/drm`. An unknown OS hostname or malformed configuration produces an explicit collection error. The old per-host `~/.config/dashboard.json` is no longer used.
 
+Additional settings:
+
+- `diskPaths`: filesystems to report (defaults to `/` and aidan's home).
+- `staleRepoDays`: highlight clean repos/worktrees whose last commit is older than this many days (30 by default). This measures commit inactivity, not editor activity.
+- `llamaUrl`: local llama.cpp server address on each target (default `http://127.0.0.1:8080`). Read-only `/health` and `/v1/models` checks distinguish API-reported loaded models from model paths in process arguments; unavailable servers are labeled rather than guessed.
+- `zellijCachePath`: cache root for exited sessions' saved layouts.
+- `procPath`: `/proc`, configurable for collector fixtures.
+
+Each `hosts` entry can override these common settings, e.g. `{"name":"waka","inference":true,"llamaUrl":"http://127.0.0.1:8081"}`. AI/GPU monitoring is enabled on both hosts. Set `inference` to false to hide it for either host. Mark the NixOS repository with `"nixos": true` to display its current flake Git revision in host health.
+
+## Reported details
+
+Host health includes uptime, 1/5/15-minute load averages and CPU count, RAM usage using Linux `MemAvailable`, disk usage and available space, and failed **system and user** systemd units. RAM/disk usage warns at 85%; load warns when the one-minute average exceeds the CPU count. NixOS shows the latest system-profile generation and its update age separately from the running system's version. The flake HEAD is the local NixOS repository revision; a deployed configuration revision is shown only when the system records it under `/run/current-system/configuration-revision`.
+
+Repositories include the last commit hash/subject/age and staged, unstaged, and untracked counts. Expand a change-count row to see filenames and Git status codes. Linked worktrees appear as nested rows with their own branches, changes, divergence, and commits. Stale/prunable registrations are displayed without modifying or pruning them.
+
+Zellij directories come from each live session's dumped layout; exited sessions use saved layouts and are labeled accordingly. Multiple pane directories are retained. Long paths abbreviate earlier components fish-style while preserving the final directory; hover for the full home-relative path. Unavailable directories are explicit.
+
+AMD GPU readings include VRAM, utilization, and edge temperature when exposed by sysfs. Process VRAM comes from readable AMD DRM fdinfo counters, including ROCm clients, deduplicated by client ID within each process. Other users' inaccessible counters are reported as incomplete; these numbers are not a replacement for total GPU VRAM. The dashboard neither installs ROCm tools nor starts/loads models. Summary rows count dirty repositories/worktrees and failed units and identify ahead/behind repositories, including NixOS.
+
 Git checks read each target's repositories: branch, dirty files, merge conflicts, ahead/behind relative to the **last fetched** upstream. They do not fetch or modify repositories. No upstream is a warning. Merge conflicts and failed checks are red; dirty or diverged repositories are yellow. Zellij lists all sessions, including exited sessions. AMD VRAM is reported per GPU in GiB, with a warning at 90% usage.
 
 The server starts a collection immediately and repeats on a two-second cadence while a browser is connected, streaming JSON via server-sent events. Slow checks never overlap within a connection; SSH checks time out after eight seconds. A disconnected browser displays a stale-data alert and reconnects automatically.

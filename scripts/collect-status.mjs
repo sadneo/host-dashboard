@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, readdir } from 'node:fs/promises';
-import { homedir, hostname } from 'node:os';
-import { join, basename, dirname } from 'node:path';
+import { readFile, readdir, readlink, statfs, lstat } from 'node:fs/promises';
+import { homedir, hostname, uptime, loadavg, cpus } from 'node:os';
+import { join, basename, dirname, isAbsolute, resolve } from 'node:path';
 
 const exec = promisify(execFile);
 const home = homedir();
@@ -15,7 +15,7 @@ const expand = async path => {
   return join(userHome, match[2] || '');
 };
 const run = async (command, args) => (await exec(command, args, {
-  timeout: 2500, maxBuffer: 512 * 1024, env: { ...process.env, LC_ALL: 'C', NO_COLOR: '1' },
+  timeout: 2500, maxBuffer: 512 * 1024, env: { ...process.env, LC_ALL: 'C', NO_COLOR: '1', GIT_OPTIONAL_LOCKS: '0' },
 })).stdout.trim();
 const message = error => (error.stderr || error.message).trim();
 let config;
@@ -35,32 +35,88 @@ if (!config || !Array.isArray(config.hosts) || !config.hosts.every(h => h && typ
 }
 const currentHost = config.hosts.find(host => host.name === hostname().split('.')[0]);
 if (!currentHost) { console.error(`Hostname ${hostname()} is not in dashboard.config.json.`); process.exit(1); }
+config = { procPath: '/proc', diskPaths: ['/'], staleRepoDays: 30, zellijCachePath: '~/.cache/zellij', ...config, ...currentHost };
+if (!Array.isArray(config.diskPaths) || !config.diskPaths.every(p => typeof p === 'string') ||
+    !Number.isFinite(config.staleRepoDays) || config.staleRepoDays < 0 || typeof config.procPath !== 'string' ||
+    typeof config.zellijCachePath !== 'string' || (config.llamaUrl != null && typeof config.llamaUrl !== 'string')) {
+  console.error('Invalid health/AI settings in dashboard.config.json.'); process.exit(1);
+}
+const optionalRead = async path => { try { return (await readFile(path, 'utf8')).trim(); } catch { return null; } };
+const displayPath = path => path === home ? '~' : path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path;
+
+async function repoState(location, name) {
+  const [status, branch, log] = await Promise.all([
+    run('git', [...location, 'status', '--porcelain=v1', '--branch']),
+    run('git', [...location, 'rev-parse', '--abbrev-ref', 'HEAD']),
+    run('git', [...location, 'log', '-1', '--format=%h%x00%ct%x00%s']),
+  ]);
+  const [header, ...lines] = status.split('\n');
+  const changes = lines.filter(Boolean).map(line => ({ status: line.slice(0, 2), path: line.slice(3) }));
+  const dirty = changes.length;
+  const ahead = Number(header.match(/ahead (\d+)/)?.[1] || 0);
+  const behind = Number(header.match(/behind (\d+)/)?.[1] || 0);
+  const conflict = changes.some(change => /^(DD|AU|UD|UA|DU|AA|UU)$/.test(change.status));
+  const hasUpstream = header.includes('...');
+  const [hash, timestamp, subject] = log.split('\0');
+  const ageSeconds = Math.max(0, Date.now() / 1000 - Number(timestamp));
+  const stale = !dirty && ageSeconds >= config.staleRepoDays * 86400;
+  return { name, branch, dirty, ahead, behind, hasUpstream, changes,
+    staged: changes.filter(c => ![' ', '?'].includes(c.status[0])).length,
+    unstaged: changes.filter(c => ![' ', '?'].includes(c.status[1])).length,
+    untracked: changes.filter(c => c.status === '??').length,
+    lastCommit: { hash, subject, ageSeconds }, stale,
+    level: conflict ? 'error' : dirty || ahead || behind || !hasUpstream || stale ? 'warning' : 'ok',
+    detail: `${branch} · ${dirty ? `${dirty} changed` : 'clean'} · ${hasUpstream ? `${ahead} ahead · ${behind} behind` : 'no upstream'}${conflict ? ' · merge conflicts' : ''}` };
+}
 
 async function repo(path, name = basename(path), workTree) {
   try {
     path = await expand(path);
     if (!workTree && basename(path) === '.git') path = dirname(path);
     const location = workTree ? [`--git-dir=${path}`, `--work-tree=${await expand(workTree)}`] : ['-C', path];
-    const [status, branch] = await Promise.all([
-      run('git', [...location, 'status', '--porcelain=v1', '--branch']),
-      run('git', [...location, 'rev-parse', '--abbrev-ref', 'HEAD']),
-    ]);
-    const lines = status.split('\n');
-    const header = lines.shift();
-    const dirty = lines.filter(Boolean).length;
-    const ahead = Number(header.match(/ahead (\d+)/)?.[1] || 0);
-    const behind = Number(header.match(/behind (\d+)/)?.[1] || 0);
-    const conflict = lines.some(line => /^(DD|AU|UD|UA|DU|AA|UU) /.test(line));
-    const upstream = header.includes('...') ? `${ahead} ahead · ${behind} behind` : 'no upstream';
-    return { name, level: conflict ? 'error' : dirty || ahead || behind || !header.includes('...') ? 'warning' : 'ok',
-      detail: `${branch} · ${dirty ? `${dirty} changed` : 'clean'} · ${upstream}${conflict ? ' · merge conflicts' : ''}` };
+    const state = await repoState(location, name);
+    const root = workTree ? await expand(workTree) : await run('git', [...location, 'rev-parse', '--show-toplevel']);
+    try {
+      const list = await run('git', [...location, 'worktree', 'list', '--porcelain', '-z']);
+      const records = list.split('\0\0').map(record => record.split('\0'));
+      state.worktrees = await Promise.all(records.filter(fields => {
+        const worktree = fields.find(field => field.startsWith('worktree '))?.slice(9);
+        return worktree && worktree !== root && worktree !== path;
+      }).map(async fields => {
+        const worktree = fields.find(field => field.startsWith('worktree ')).slice(9);
+        const prunable = fields.find(field => field.startsWith('prunable'));
+        if (prunable) return { name: basename(worktree), path: displayPath(worktree), level: 'warning', detail: prunable, prunable: true };
+        try { return { ...await repoState(['-C', worktree], basename(worktree)), path: displayPath(worktree) }; }
+        catch (error) { return { name: basename(worktree), path: displayPath(worktree), level: 'error', detail: message(error) }; }
+      }));
+    } catch (error) { state.worktrees = []; state.worktreeError = message(error); }
+    return { ...state, path: displayPath(root) };
   } catch (error) { return { name, level: 'error', detail: message(error) }; }
 }
 
 async function zellij() {
   try {
     const output = (await run('zellij', ['list-sessions', '--no-formatting'])).replace(/\x1b\[[0-9;]*m/g, '');
-    return { name: 'zellij ls', level: output ? 'ok' : 'warning', detail: output || 'No active sessions.' };
+    const directories = {};
+    await Promise.all(output.split('\n').filter(Boolean).map(async line => {
+      const name = line.match(/^(.+?)\s+\[Created /)?.[1];
+      if (!name) return;
+      try {
+        let layout;
+        if (line.includes('(EXITED')) {
+          const cache = await expand(config.zellijCachePath);
+          for (const version of await readdir(cache)) {
+            layout = await optionalRead(join(cache, version, 'session_info', name, 'session-layout.kdl'));
+            if (layout) break;
+          }
+        } else { layout = await run('zellij', ['--session', name, 'action', 'dump-layout']); }
+        // ponytail: extract only quoted cwd properties, use a KDL parser if layouts adopt raw-string paths.
+        const paths = [...(layout || '').matchAll(/\bcwd(?:=|\s+)("(?:\\.|[^"\\])*")/g)].map(match => JSON.parse(match[1]));
+        const base = paths.find(isAbsolute) || home;
+        directories[name] = { paths: [...new Set(paths.map(path => displayPath(isAbsolute(path) ? path : resolve(base, path))))], saved: line.includes('(EXITED') };
+      } catch (error) { directories[name] = { paths: [], error: message(error) }; }
+    }));
+    return { name: 'zellij ls', level: output ? 'ok' : 'warning', detail: output || 'No active sessions.', directories };
   } catch (error) {
     const detail = message(error);
     return { name: 'zellij ls', level: /no (active )?sessions/i.test(detail) ? 'warning' : 'error', detail };
@@ -75,6 +131,102 @@ async function llama() {
     const active = properties.LoadState === 'loaded' && properties.ActiveState === 'active';
     return { name: service, level: active ? 'ok' : 'error', detail: `${properties.LoadState} · ${properties.ActiveState} / ${properties.SubState}` };
   } catch (error) { return { name: service, level: 'error', detail: message(error) }; }
+}
+
+async function health() {
+  const checks = [];
+  const hours = Math.floor(uptime() / 3600);
+  const loads = loadavg();
+  checks.push({ name: 'Uptime / load', level: loads[0] > cpus().length ? 'warning' : 'ok',
+    detail: `${Math.floor(hours / 24)}d ${hours % 24}h ${Math.floor(uptime() / 60) % 60}m · ${loads.map(n => n.toFixed(2)).join(' / ')} · ${cpus().length} CPUs` });
+  try {
+    const memory = await readFile(join(config.procPath, 'meminfo'), 'utf8');
+    const total = Number(memory.match(/^MemTotal:\s+(\d+)/m)?.[1]) * 1024;
+    const available = Number(memory.match(/^MemAvailable:\s+(\d+)/m)?.[1]) * 1024;
+    if (!(total > 0) || !Number.isFinite(available)) throw new Error('RAM counters unavailable.');
+    checks.push({ name: 'RAM', level: (total - available) / total >= .85 ? 'warning' : 'ok',
+      detail: `${((total - available) / 2 ** 30).toFixed(1)} / ${(total / 2 ** 30).toFixed(1)} GiB used` });
+  } catch (error) { checks.push({ name: 'RAM', level: 'warning', detail: message(error) }); }
+  await Promise.all(config.diskPaths.map(async path => {
+    try {
+      const stats = await statfs(await expand(path));
+      const total = stats.blocks * stats.bsize;
+      const used = (stats.blocks - stats.bfree) * stats.bsize;
+      const available = stats.bavail * stats.bsize;
+      checks.push({ name: `Disk ${path}`, level: used / (used + available) >= .85 ? 'warning' : 'ok',
+        detail: `${(used / 2 ** 30).toFixed(1)} / ${(total / 2 ** 30).toFixed(1)} GiB · ${(available / 2 ** 30).toFixed(1)} GiB available` });
+    } catch (error) { checks.push({ name: `Disk ${path}`, level: 'warning', detail: message(error) }); }
+  }));
+  const failedUnits = [];
+  for (const user of [false, true]) {
+    try {
+      const output = await run('systemctl', [...(user ? ['--user'] : []), '--failed', '--no-legend', '--plain', '--no-pager']);
+      const units = output.split('\n').filter(Boolean).map(line => `${line.trim().split(/\s+/)[0]}${user ? ' (user)' : ''}`);
+      failedUnits.push(...units);
+      checks.push({ name: user ? 'User units' : 'System units', level: units.length ? 'error' : 'ok', detail: units.length ? units.join(', ') : 'No failed units.' });
+    } catch (error) { checks.push({ name: user ? 'User units' : 'System units', level: 'warning', detail: message(error) }); }
+  }
+  try {
+    const profile = await readlink('/nix/var/nix/profiles/system');
+    const generation = profile.match(/system-(\d+)-link/)?.[1];
+    const version = await readFile('/run/current-system/nixos-version', 'utf8');
+    const running = await readlink('/run/current-system');
+    const ageSeconds = Math.max(0, (Date.now() - (await lstat(join('/nix/var/nix/profiles', profile))).mtimeMs) / 1000);
+    const deployedRevision = await optionalRead('/run/current-system/configuration-revision');
+    checks.push({ name: 'NixOS', level: 'ok', detail: `profile gen ${generation || '?'} · ${version.trim()}`, generationAgeSeconds: ageSeconds });
+    return { checks, failedUnits, nixos: { generation, ageSeconds, version: version.trim(), running, deployedRevision } };
+  } catch (error) { checks.push({ name: 'NixOS', level: 'warning', detail: message(error) }); }
+  return { checks, failedUnits };
+}
+
+async function ai() {
+  const processes = [];
+  const gpuProcesses = [];
+  let memoryError;
+  try {
+    await Promise.all((await readdir(config.procPath)).filter(pid => /^\d+$/.test(pid)).map(async pid => {
+      const base = join(config.procPath, pid);
+      const command = await optionalRead(join(base, 'cmdline'));
+      if (!command) return;
+      const args = command.split('\0').filter(Boolean);
+      const name = await optionalRead(join(base, 'comm')) || basename(args[0]).split(/\s+/)[0];
+      const executable = basename(args[0]).split(/\s+/)[0].replace(/^\./, '').replace(/-wrapped$/, '');
+      if (/^(llama-(?:server|cli|run|bench|simple)|llama\.cpp|main)$/.test(executable)) {
+        const modelIndex = args.findIndex(arg => ['-m', '--model', '-hf', '--hf-repo'].includes(arg));
+        const model = modelIndex >= 0 ? args[modelIndex + 1] : args.find(arg => arg.startsWith('--model='))?.slice(8);
+        processes.push({ pid: Number(pid), name, model: model || null });
+      }
+      try {
+        const clients = new Map();
+        for (const fd of await readdir(join(base, 'fdinfo'))) {
+          const info = await optionalRead(join(base, 'fdinfo', fd));
+          if (!info || !/^drm-driver:\s*amdgpu/m.test(info)) continue;
+          const id = info.match(/^drm-client-id:\s*(\d+)/m)?.[1];
+          const memory = info.match(/^drm-(?:memory|total)-vram:\s*(\d+)\s*(KiB|kB|bytes|B)/m);
+          if (id && memory) clients.set(id, Number(memory[1]) * (['KiB', 'kB'].includes(memory[2]) ? 1024 : 1));
+        }
+        if (clients.size) gpuProcesses.push({ pid: Number(pid), name, vramGiB: [...clients.values()].reduce((sum, bytes) => sum + bytes, 0) / 2 ** 30 });
+      } catch (error) { if (error.code === 'EACCES' || error.code === 'EPERM') memoryError = 'Some process VRAM counters are not readable by this account.'; }
+    }));
+  } catch (error) { memoryError = message(error); }
+  const models = [];
+  let modelError = 'Set llamaUrl to query the loaded model.';
+  if (config.llamaUrl) {
+    try {
+      const [ready, response] = await Promise.all(['health', 'v1/models'].map(path => fetch(
+        new URL(path, `${config.llamaUrl.replace(/\/$/, '')}/`), { signal: AbortSignal.timeout(1000) })));
+      if (!ready.ok || !response.ok) throw new Error(`llama.cpp is not ready (HTTP ${ready.status}/${response.status}).`);
+      const body = await response.json();
+      if (!Array.isArray(body.data)) throw new Error('Invalid llama.cpp model response.');
+      for (const model of body.data) {
+        const state = typeof model.status === 'string' ? model.status : model.status?.value;
+        if (typeof model.id === 'string' && (!state || state === 'loaded')) models.push(model.id);
+      }
+      modelError = models.length ? null : 'No loaded models reported.';
+    } catch (error) { modelError = message(error); }
+  }
+  return { processes: processes.sort((a, b) => a.pid - b.pid), models, modelError,
+    gpuProcesses: gpuProcesses.sort((a, b) => b.vramGiB - a.vramGiB), memoryError: memoryError || (gpuProcesses.length ? null : 'No readable AMD process VRAM counters (ROCm/DRM).') };
 }
 
 async function gpu() {
@@ -92,15 +244,25 @@ async function gpu() {
       if (!used.trim() || !total.trim() || !Number.isFinite(totalGiB) || totalGiB <= 0 || !Number.isFinite(usedGiB) || usedGiB < 0) throw new Error(`Invalid AMD VRAM readings for ${card}.`);
       let name = `AMD GPU (${card})`;
       try { name = `${(await readFile(join(device, 'product_name'), 'utf8')).trim()} (${card})`; } catch {}
-      gpus.push({ name, usedGiB, totalGiB });
+      const busy = await optionalRead(join(device, 'gpu_busy_percent'));
+      const utilization = busy != null && Number.isFinite(Number(busy)) ? Number(busy) : null;
+      let temperature = null;
+      try {
+        const hwmon = (await readdir(join(device, 'hwmon'))).find(name => /^hwmon\d+$/.test(name));
+        const input = hwmon ? await optionalRead(join(device, 'hwmon', hwmon, 'temp1_input')) : null;
+        if (input != null && Number.isFinite(Number(input))) temperature = Number(input) / 1000;
+      } catch {}
+      gpus.push({ name, usedGiB, totalGiB, utilization, temperature });
     }
     return { gpus, ...(gpus.length ? {} : { gpuError: 'No AMD GPU with VRAM counters found in sysfs.' }) };
   } catch (error) { return { gpus: [], gpuError: message(error) }; }
 }
 
-const [projectChecks, configRepos, sessions, llamaStatus, gpuStatus] = await Promise.all([
+const [projectChecks, configRepos, sessions, llamaStatus, gpuStatus, hostHealth, aiStatus] = await Promise.all([
   config.projects.length ? Promise.all(config.projects.map(r => repo(r.path, r.name, r.workTree))) : [{ name: 'Projects', level: 'warning', detail: 'No project repositories configured.' }],
   Promise.all(config.configRepos.map(r => repo(r.path, r.name, r.workTree))),
   zellij(), currentHost.inference ? llama() : null, currentHost.inference ? gpu() : { gpus: [] },
+  health(), currentHost.inference ? ai() : null,
 ]);
-console.log(JSON.stringify({ projects: projectChecks, configRepos, zellij: sessions, llama: llamaStatus, ...gpuStatus }));
+console.log(JSON.stringify({ projects: projectChecks, configRepos, zellij: sessions, llama: llamaStatus,
+  health: hostHealth, ai: aiStatus, ...gpuStatus }));
