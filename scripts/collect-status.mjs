@@ -293,27 +293,12 @@ async function services() {
       diagnosis: backend === false && http ? 'SillyTavern itself is healthy; model backend is unavailable.' : process && !listening ? 'Process exists but port is not listening.' : state === 'healthy' ? 'All configured dependency checks passed.' : `${service.name} ${state}; inspect the failed stage.` };
   }));
 }
-async function network() {
-  const route = await run('ip', ['-j', 'route', 'show', 'default']).then(JSON.parse).catch(() => []);
-  const iface = route[0]?.dev;
-  const wifi = iface ? await run('iw', ['dev', iface, 'link']).catch(message) : '';
-  const nmWifi = wifi.match(/SSID: (.+)/) ? '' : await run('nmcli', ['-t', '-f', 'ACTIVE,SSID', 'dev', 'wifi', 'list', '--rescan', 'no']).catch(() => '');
-  const check = async (command, args) => { try { await run(command, args); return true; } catch { return false; } };
-  const [gateway, ip, dns, https] = await Promise.all([
-    route[0]?.gateway ? check('ping', ['-c', '1', '-W', '1', route[0].gateway]) : null,
-    tcp('1.1.1.1', 443), check('getent', ['ahostsv4', 'example.com']),
-    fetch('https://example.com', { signal: AbortSignal.timeout(1500) }).then(async r => { await r.body?.cancel(); return r.ok; }).catch(() => false),
-  ]);
-  return { interface: iface || 'unknown', ssid: wifi.match(/SSID: (.+)/)?.[1] || nmWifi.match(/^yes:(.+)$/m)?.[1] || 'unknown', gateway, ip, dns, https,
-    diagnosis: !iface ? 'No default route' : !ip ? 'Internet-by-IP unavailable' : !dns ? 'DNS / resolver failure' : !https ? 'HTTPS failing' : 'network healthy' };
-}
-
-const [projectChecks, configRepos, sessions, llamaStatus, gpuStatus, hostHealth, aiStatus, serviceStatus, networkStatus] = await Promise.all([
+const [projectChecks, configRepos, sessions, llamaStatus, gpuStatus, hostHealth, aiStatus, serviceStatus] = await Promise.all([
   config.projects.length ? Promise.all(config.projects.map(r => repo(r.path, r.name, r.workTree))) : [{ name: 'Projects', level: 'warning', detail: 'No project repositories configured.' }],
   Promise.all(config.configRepos.map(r => repo(r.path, r.name, r.workTree))),
   zellij(), currentHost.inference ? llama() : null, currentHost.inference ? gpu() : { gpus: [] },
   health(), currentHost.inference ? ai() : null,
-  currentHost.name === 'babel' ? services() : [], currentHost.name === 'waka' ? network() : null,
+  currentHost.name === 'babel' ? services() : [],
 ]);
 console.log(JSON.stringify({ projects: projectChecks, configRepos, zellij: sessions, llama: llamaStatus,
-  health: hostHealth, ai: aiStatus, services: serviceStatus, network: networkStatus, ...gpuStatus }));
+  health: hostHealth, ai: aiStatus, services: serviceStatus, ...gpuStatus }));

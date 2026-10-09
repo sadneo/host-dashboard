@@ -1,13 +1,12 @@
 # Host dashboard
 
-Four views share a monospace, hard-bordered Selenized Light shell. Green means healthy, yellow noteworthy, red failed, gray metadata/unavailable, and blue selected/actionable. Babel is always left of Waka.
+Three views share a monospace, hard-bordered Selenized Light shell. Green means healthy, yellow noteworthy, red failed, gray metadata/unavailable, and blue selected/actionable. Babel is always left of Waka.
 
-- **1 Main:** compact host/deployment and Waka network strips, up to six project comparisons, recent commits/active Zellij directories, and at most three actionable attention items. RAM/disk/load appear only when abnormal.
+- **1 Main:** compact host/deployment summaries, up to six project comparisons, recent commits/active Zellij directories, and at most three actionable attention items. RAM/disk/load appear only when abnormal.
 - **2 Projects:** symmetric cross-host evidence, all/active/dirty/diverged/config filters, worktrees, upstream counts, and activity-based primary-workspace hints. Dotfiles and NixOS use the same layout under CONFIG. Select a project for the bottom file/activity inspector; Esc closes it.
 - **3 Desktop:** Babel GPU/model overview and selected service dependency chain, listener/PID, restart/result fields, and collapsed journal output. `[run checks]` refreshes collection; it does not restart services.
-- **4 Network:** explicit sequential diagnostic run on Waka with timings, progress, failed context expanded, derived diagnoses, and one contiguous copy/screenshot report. Switching tabs retains results; cancellation retains partial evidence. Copy uses the clipboard with a selectable-text fallback.
 
-Press 1–4 to switch views. Main targets a single desktop viewport; small screens scroll. No fabricated time-worked metrics are used.
+Press 1–3 to switch views. Main targets a single desktop viewport; small screens scroll. No fabricated time-worked metrics are used.
 
 ## Run locally
 
@@ -24,7 +23,7 @@ Open <http://127.0.0.1:7582>. For development, use `pnpm dev` instead. The serve
 
 Edit **`dashboard.config.json`** for both the frontend and backend. `hosts` lists the column order and displayed/SSH hostnames. The host with `"inference": true` shows llama-cpp and AMD VRAM. Rename hosts here when renaming a machine; names should match the machine's short OS hostname and resolve through Tailscale MagicDNS (or SSH configuration). Rebuild and restart after changing this file.
 
-Both scripts detect the current OS hostname automatically. On waka, collection runs locally for waka and over SSH only for babel; on babel, collection runs locally for babel and over SSH only for waka. No SSH connection to yourself is needed. Set up key-based SSH and accept the **other** host's key interactively:
+The collector detects the current OS hostname automatically. On waka, collection runs locally for waka and over SSH only for babel; on babel, collection runs locally for babel and over SSH only for waka. No SSH connection to yourself is needed. Set up key-based SSH and accept the **other** host's key interactively:
 
 ```sh
 ssh babel true # when running on waka
@@ -53,9 +52,7 @@ Additional settings:
 - `llamaUrl`: local llama.cpp server address on each target (default `http://127.0.0.1:8080`). Read-only `/health` and `/v1/models` checks distinguish API-reported loaded models from model paths in process arguments; unavailable servers are labeled rather than guessed.
 - `zellijCachePath`: cache root for exited sessions' saved layouts.
 - `procPath`: `/proc`, configurable for collector fixtures.
-- `services`: personally relevant Babel services with `name`, `unit`, optional `user`, `url` or `port`, `networkUrl` for optional Waka-to-service checks, and `backend: true` for the configured llama.cpp dependency. Current Babel addresses were verified as SillyTavern `3829` and llama.cpp router `23785`; the latter is loopback-only. Adjust these addresses/unit names to your installation. This probes the configured backend, not SillyTavern's internally selected provider.
-
-Full network checks additionally use `ip`, `iw` (or NetworkManager's `nmcli` for Wi-Fi evidence), `ping`, `networkctl`, `resolvectl`, `getent`, `curl`, `tracepath`, and `tailscale` on Waka. Missing tools are recorded as unavailable rather than connectivity failures. Each subprocess has a five-second deadline; the run has a three-minute limit. TCP/TLS and UDP/TCP/DoT DNS queries use Node directly, with no `dig`/`kdig` dependency. DNS wire probes report response codes, answer counts, and raw response bytes. DoT-blocked interpretation requires normal DNS success, failing configured DoT, failing system resolution, and an explicit DoT-required resolver setting. Profile is read from `/etc/specialisation`, a running-system marker, or a kernel argument; absent markers are unknown rather than guessed.
+- `services`: personally relevant Babel services with `name`, `unit`, optional `user`, `url` or `port`, and `backend: true` for the configured llama.cpp dependency. Current Babel addresses were verified as SillyTavern `3829` and llama.cpp router `23785`; the latter is loopback-only. Adjust these addresses/unit names to your installation. This probes the configured backend, not SillyTavern's internally selected provider.
 
 Cross-host relationships use full HEAD hashes and up to 2,000 ancestor hashes per host, with unknown ancestry explicitly labeled. Seven-day activity includes up to 50 commits per repository per host; shared commits are deduplicated in Main. Divergence does not imply unpublished work without remote evidence. Upstream comparisons use locally cached refs and never fetch.
 

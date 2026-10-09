@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import config from '../dashboard.config.json';
-import { age, projectPairs, networkDiagnosis, diagnosticSummary } from '../lib/dashboard.mjs';
+import { age, projectPairs } from '../lib/dashboard.mjs';
 
-const tabs = ['Main', 'Projects', 'Desktop', 'Network'];
-const phases = ['Environment', 'Link', 'Addressing', 'Local network', 'Raw internet', 'DNS configuration', 'DNS functionality', 'HTTPS / TLS', 'Pathological cases', 'Your infrastructure', 'Derived diagnosis'];
+const tabs = ['Main', 'Projects', 'Desktop'];
 const symbol = value => value == null ? '—' : value ? '✓' : '✗';
 const tone = value => value == null ? 'info' : value ? 'ok' : 'error';
 const short = hash => hash?.slice(0, 7) || '—';
@@ -35,14 +34,11 @@ function Recent({ pairs }) {
     {pairs.flatMap(p => p.sides.filter(s => s.sessions.length).map(s => <p key={`${p.name}-${s.host}`}>Zellij {s.host} · {p.name} · {s.sessions.join(', ')} · {s.repo.path}</p>)).slice(0, 3)}</>;
 }
 function Main({ hosts, pairs, inspect, open }) {
-  const waka = hosts.find(h => h.host === 'waka'), babel = hosts.find(h => h.host === 'babel');
-  const network = waka?.network;
+  const babel = hosts.find(h => h.host === 'babel');
   const attention = [...hosts.filter(h => !h.online).map(h => ({ text: `${h.host} unavailable`, tab: 0 })),
-    ...(network && network.diagnosis !== 'network healthy' ? [{ text: `waka ${network.diagnosis}`, tab: 3 }] : []),
     ...(babel?.services || []).filter(s => ['failed', 'degraded'].includes(s.state)).map(s => ({ text: s.diagnosis, tab: 2 })),
     ...pairs.filter(p => p.state === 'diverged' || p.sides.some(s => s.repo?.behind || s.repo?.level === 'error')).map(p => ({ text: `${p.name} ${p.state === 'diverged' ? 'diverged' : p.sides.some(s => s.repo?.level === 'error') ? 'repository check failed' : 'behind upstream'}`, tab: 1 }))].slice(0, 3);
   return <div className="main-view"><Section title="Hosts"><div className="two-col">{['babel', 'waka'].map(name => <HostSummary key={name} name={name} host={hosts.find(h => h.host === name)} />)}</div></Section>
-    <Section title="Network — waka"><button className="network-strip" onClick={() => open(3)}>{network ? <><span>waka · {network.interface} · {network.ssid} · {waka.health?.nixos?.specialization || 'profile unknown'}</span>{[['gateway', network.gateway], ['IP', network.ip], ['DNS', network.dns], ['HTTPS', network.https]].map(([name, value]) => <span className={tone(value)} key={name}>{name} {symbol(value)}</span>)}<b className={network.diagnosis === 'network healthy' ? 'ok' : 'warning'}>{network.diagnosis}</b></> : 'Network evidence unavailable · open diagnostics'}</button></Section>
     <Section title="Projects" className="main-projects"><div className="project-row table-heading"><span>repository</span><span>babel</span><span>waka</span><span>relationship</span></div>{pairs.slice(0, 6).map(p => <button className="project-row" key={p.name} onClick={() => inspect(p.name)}><b>{p.name}</b>{p.sides.map(s => <CompactRepo side={s} key={s.host} />)}<span className={p.level}>{p.level === 'ok' ? '✓' : '›'} {p.state}</span></button>)}{pairs.length > 6 && <button onClick={() => open(1)}>+ {pairs.length - 6} more</button>}</Section>
     <div className="bottom-grid"><Section title="Recent work"><Recent pairs={pairs} /></Section><Section title="Attention">{attention.length ? attention.map((a, i) => <p key={i}><button className="warning" onClick={() => open(a.tab)}>! {a.text}</button></p>) : <p className={hosts.length ? 'ok' : 'info'}>{hosts.length ? '✓ No actionable failures observed' : 'Waiting for host evidence'}</p>}</Section></div></div>;
 }
@@ -62,37 +58,18 @@ function Desktop({ babel, refresh }) {
       <p className="info">{service.unit} · restarts {service.properties.NRestarts || '—'} · last result {service.properties.Result || 'unknown'} · exit {service.properties.ExecMainStatus || '—'}</p><pre>{service.listener || 'No readable listener details'}</pre><details><summary>systemctl essentials / recent journal</summary><pre>{service.raw}</pre><pre>{service.journal || 'Journal evidence unavailable'}</pre></details>
     </> : <p className="info">{babel?.error || 'Waiting for Babel service evidence.'}</p>}<h3>GPU process memory — AMD / ROCm</h3>{babel?.ai?.gpuProcesses?.map(p => <p key={p.pid}>{p.name} · PID {p.pid} <b>{p.vramGiB.toFixed(2)} GiB</b></p>)}<p className="info">{babel?.ai?.memoryError}</p></Section></div></>;
 }
-function Network({ waka, run, start, cancel }) {
-  const [copyState, setCopyState] = useState('copy summary');
-  const summaryRef = useRef(null);
-  const results = run?.results || [];
-  const summary = run ? diagnosticSummary(run) : '';
-  async function copy() { try { await navigator.clipboard.writeText(summary); setCopyState('copied'); } catch { summaryRef.current?.focus(); summaryRef.current?.select(); setCopyState('selected — press Ctrl+C'); } }
-  return <><Section title="Network diagnostics — waka"><p>profile: {waka?.health?.nixos?.specialization || 'unknown'} · SSID: {waka?.network?.ssid || 'unknown'} · interface: {waka?.network?.interface || 'unknown'}</p><div className="toolbar"><button disabled={run?.running} onClick={() => { setCopyState('copy summary'); start(); }}>[ RUN FULL DIAGNOSTICS ]</button>{run?.running && <button onClick={cancel}>[ cancel ]</button>}<span className="info">Sequential checks · read-only · results retained until next run</span></div>{run && <><p className="info">{run.timestamp} · {run.running ? 'running' : run.complete ? 'complete' : 'incomplete'}</p>{run.complete && networkDiagnosis(results).map(n => <p className="diagnosis" key={n}>RESULT: {n}</p>)}{run.error && <p className="error">{run.error}</p>}</>}</Section>
-    {run && phases.map((phase, i) => { const entries = results.filter(r => r.phase === i), running = run.current?.phase === i && run.running;
-      return <Section key={phase} title={`${i}. ${phase}`}><div className="phase-state info">{running ? `${run.current.command} · running…` : i === 10 && run.complete ? 'complete' : entries.length ? `${entries.length} checks recorded` : run.complete ? 'not applicable' : 'pending'}</div>{entries.map(r => <div className={`test-result ${r.status}`} key={r.id}><div className="check"><span>{r.command}</span><b className={r.status === 'passed' ? 'ok' : r.status === 'failed' ? 'error' : 'info'}>{r.status === 'passed' ? '✓' : r.status === 'failed' ? '✗' : '—'} {r.status} · {r.durationMs}ms</b></div>{r.status === 'failed' || r.status === 'unavailable' || [0, 1, 2, 5, 7].includes(i) ? <pre>{r.stdout}{r.stderr && `\nstderr: ${r.stderr}`}</pre> : <details><summary>raw output</summary><pre>{r.stdout || '(no stdout)'}{r.stderr && `\nstderr: ${r.stderr}`}</pre></details>}</div>)}{i === 10 && run.complete && networkDiagnosis(results).map(n => <p key={n}>{n}</p>)}</Section>; })}
-    {run && <Section title="Copy / screenshot summary"><button onClick={copy}>[ {copyState} ]</button><pre className="copy-report">{summary}</pre><textarea ref={summaryRef} className="copy-fallback" aria-label="Diagnostic summary for copying" value={summary} readOnly /></Section>}</>;
-}
 function Inspector({ pair, close }) {
   if (!pair) return null;
   return <aside className="inspector" aria-label={`${pair.name} inspector`}><header><b>{pair.name} — files / recent activity</b><button onClick={close}>[close · Esc]</button></header><div className="two-col">{pair.sides.map(s => <div key={s.host}><h3>{s.host} · {s.repo?.path || 'unavailable'}</h3>{[s.repo, ...(s.repo?.worktrees || [])].filter(Boolean).map(r => <div key={r.path || r.name}><p>{r.name} · {r.detail}</p>{r.changes?.map((c, i) => <pre key={i}>{c.status} {c.path}</pre>)}{r.recent?.slice(0, 10).map(c => <p className="info" key={c.hash}>{short(c.hash)} {age(c.ageSeconds)} · {c.subject}</p>)}</div>)}</div>)}</div></aside>;
 }
 export default function Dashboard() {
   const [data, setData] = useState(null), [connected, setConnected] = useState(false), [attempt, setAttempt] = useState(0);
-  const [tab, setTab] = useState(0), [inspected, setInspected] = useState(null), [run, setRun] = useState(null);
-  const diagnosticSource = useRef(null);
+  const [tab, setTab] = useState(0), [inspected, setInspected] = useState(null);
   useEffect(() => { const source = new EventSource('/api/status'); source.onmessage = event => { setData(JSON.parse(event.data)); setConnected(true); }; source.onerror = () => setConnected(false); return () => source.close(); }, [attempt]);
-  useEffect(() => { const key = event => { if (/INPUT|TEXTAREA|SELECT/.test(event.target.tagName) || event.ctrlKey || event.metaKey || event.altKey) return; if (/^[1-4]$/.test(event.key)) { setTab(Number(event.key) - 1); setInspected(null); } if (event.key === 'Escape') setInspected(null); }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, []);
-  useEffect(() => () => diagnosticSource.current?.close(), []);
-  function start() {
-    diagnosticSource.current?.close(); setRun({ results: [], running: true, timestamp: new Date().toISOString(), host: 'waka' });
-    const source = new EventSource('/api/diagnostics?host=waka'); diagnosticSource.current = source;
-    source.onmessage = event => { const value = JSON.parse(event.data); setRun(prev => value.type === 'start' ? { ...prev, timestamp: value.timestamp, host: value.host } : value.type === 'running' ? { ...prev, current: value } : value.type === 'result' ? { ...prev, results: [...prev.results, value.result] } : value.type === 'complete' ? { ...prev, results: value.results, running: false, complete: true } : { ...prev, running: false, error: value.error }); if (['complete', 'error'].includes(value.type)) source.close(); };
-    source.onerror = () => { source.close(); setRun(prev => ({ ...prev, running: false, error: 'Diagnostic stream interrupted. Evidence retained; run again to retry.' })); };
-  }
+  useEffect(() => { const key = event => { if (/INPUT|TEXTAREA|SELECT/.test(event.target.tagName) || event.ctrlKey || event.metaKey || event.altKey) return; if (/^[1-3]$/.test(event.key)) { setTab(Number(event.key) - 1); setInspected(null); } if (event.key === 'Escape') setInspected(null); }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, []);
   const hosts = data?.hosts || [], pairs = projectPairs(hosts, config);
   const open = index => { setTab(index); setInspected(null); };
   const refresh = () => { setConnected(false); setAttempt(n => n + 1); };
   return <main><header className="shell-header"><nav aria-label="Dashboard views">{tabs.map((name, i) => <button key={name} aria-current={tab === i ? 'page' : undefined} onClick={() => open(i)}>[{i + 1} {name}]</button>)}</nav><span className="info">babel / waka <span className={connected ? 'ok' : 'warning'}>● {connected ? 'live' : data ? 'stale · reconnecting' : 'connecting'}</span> · {data ? new Date(data.updatedAt).toLocaleTimeString() : '—'} <button onClick={refresh}>↻</button></span></header>
-    <div className="view">{tab === 0 ? <Main hosts={hosts} pairs={pairs} inspect={setInspected} open={open} /> : tab === 1 ? <Projects pairs={pairs} inspect={setInspected} /> : tab === 2 ? <Desktop babel={hosts.find(h => h.host === 'babel')} refresh={refresh} /> : <Network waka={hosts.find(h => h.host === 'waka')} run={run} start={start} cancel={() => { diagnosticSource.current?.close(); setRun(prev => ({ ...prev, running: false, error: 'Cancelled; partial results retained.' })); }} />}</div><Inspector pair={pairs.find(p => p.name === inspected)} close={() => setInspected(null)} /><footer className="shell-footer">1–4 switch views · select project for inspector · Esc close <span>read-only evidence · no fetch / deploy / restart</span></footer></main>;
+    <div className="view">{tab === 0 ? <Main hosts={hosts} pairs={pairs} inspect={setInspected} open={open} /> : tab === 1 ? <Projects pairs={pairs} inspect={setInspected} /> : <Desktop babel={hosts.find(h => h.host === 'babel')} refresh={refresh} />}</div><Inspector pair={pairs.find(p => p.name === inspected)} close={() => setInspected(null)} /><footer className="shell-footer">1–3 switch views · select project for inspector · Esc close <span>read-only evidence · no fetch / deploy / restart</span></footer></main>;
 }
