@@ -183,7 +183,9 @@ async function health() {
     const ageSeconds = Math.max(0, (Date.now() - (await lstat(join('/nix/var/nix/profiles', profile))).mtimeMs) / 1000);
     const deployedRevision = await optionalRead('/run/current-system/configuration-revision');
     checks.push({ name: 'NixOS', level: 'ok', detail: `profile gen ${generation || '?'} · ${version.trim()}`, generationAgeSeconds: ageSeconds });
-    const specialization = await optionalRead('/etc/specialisation') || await optionalRead('/run/current-system/specialisation-name') || (await optionalRead('/proc/cmdline'))?.match(/(?:specialisation|specialization)=([^ ]+)/)?.[1] || 'unknown';
+    const systemName = basename(running).slice(33), prefix = `nixos-system-${hostname()}-`, suffix = `-${version.trim().match(/\d{2}\.\d{2}.*$/)?.[0]}`;
+    const tag = systemName === `nixos-system-${hostname()}${suffix}` ? 'default' : systemName.startsWith(prefix) && systemName.endsWith(suffix) ? systemName.slice(prefix.length, -suffix.length) : '';
+    const specialization = await optionalRead('/etc/specialisation') || await optionalRead('/run/current-system/specialisation-name') || tag || (await optionalRead('/proc/cmdline'))?.match(/(?:specialisation|specialization)=([^ ]+)/)?.[1] || 'unknown';
     return { checks, failedUnits, nixos: { generation, ageSeconds, version: version.trim(), running, deployedRevision, specialization } };
   } catch (error) { checks.push({ name: 'NixOS', level: 'warning', detail: message(error) }); }
   return { checks, failedUnits };

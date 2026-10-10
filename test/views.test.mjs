@@ -1,8 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { projectPairs } from '../lib/dashboard.mjs';
+import { projectPairs, runningConfigComparison } from '../lib/dashboard.mjs';
 
 const configuration = { projects: [{ name: 'project' }], configRepos: [{ name: 'nixos', nixos: true }] };
+test('running config comparison requires deployed revisions, not matching repository HEADs', () => {
+  const data = ['babel', 'waka'].map(host => ({ host, online: true, health: { nixos: {} } }));
+  assert.match(runningConfigComparison(data), /unknown.*babel and waka/);
+  for (const h of data) h.health.nixos.deployedRevision = 'a'.repeat(40);
+  assert.match(runningConfigComparison(data), /same source commit/);
+  data[1].health.nixos.deployedRevision = 'b'.repeat(40);
+  assert.match(runningConfigComparison(data), /different source commits/);
+  data[1].health.nixos.deployedRevision = 'dirty';
+  assert.match(runningConfigComparison(data), /unknown/);
+  data[1].online = false;
+  assert.match(runningConfigComparison(data), /both hosts must be online/);
+});
 const repo = (hash, history, dirty = 0) => ({ name: 'project', path: '/work/project', lastCommit: { hash }, history, dirty, recent: [], worktrees: [] });
 const hosts = (a, b) => [a, b].map((r, i) => ({ host: i ? 'waka' : 'babel', online: true, projects: r ? [r] : [], configRepos: [], zellij: { directories: {} } }));
 test('cross-host comparisons use actual ancestry and do not guess from upstream counts', () => {

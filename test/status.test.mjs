@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, chmod, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, chmod, readFile, readlink } from 'node:fs/promises';
 import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, execFile } from 'node:child_process';
@@ -31,6 +31,8 @@ test('collector detects clean, dirty, diverged, conflicted, and missing reposito
       encoding: 'utf8', env: { ...process.env, DASHBOARD_CONFIG_JSON: '', DASHBOARD_CONFIG: config },
     })));
     let result = collect();
+    const running = await readlink('/run/current-system').catch(() => '');
+    if (running.includes(`nixos-system-${hostname()}-sensible-`)) assert.equal(result.health.nixos.specialization, 'sensible');
     assert.equal(result.projects[0].level, 'ok');
     assert.equal(result.configRepos[0].level, 'error');
     assert.equal(result.configRepos[1].level, 'ok');

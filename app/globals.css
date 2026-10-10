@@ -28,9 +28,9 @@ p { margin: 2px 0; overflow-wrap: anywhere; }
 .project-row small { display: block; font-size: 11px; }
 .table-heading { color: var(--muted); font-size: 11px; padding: 0 0 4px; }
 .main-projects { min-height: 260px; }
-.bottom-grid { display: grid; grid-template-columns: 2fr 1fr; }
+.bottom-grid { display: grid; grid-template-columns: 1fr; }
 .bottom-grid .section { border-bottom: 0; }
-.bottom-grid .section + .section { border-left: 1px solid var(--muted); }
+.bottom-grid .section + .section { border-top: 1px solid var(--muted); }
 .toolbar { display: flex; gap: 14px; padding: 8px 0; flex-wrap: wrap; align-items: center; }
 .view > .toolbar { padding: 10px 14px; border-bottom: 1px solid var(--muted); }
 .project-detail { border-top: 1px solid var(--muted); padding: 12px 0; }

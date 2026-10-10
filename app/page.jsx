@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import config from '../dashboard.config.json';
-import { age, projectPairs } from '../lib/dashboard.mjs';
+import { age, projectPairs, runningConfigComparison } from '../lib/dashboard.mjs';
 
 const tabs = ['Main', 'Projects', 'Desktop'];
 const symbol = value => value == null ? '—' : value ? '✓' : '✗';
@@ -17,9 +17,8 @@ function CompactRepo({ side }) {
 }
 function HostSummary({ host, name }) {
   const n = host?.health?.nixos;
-  const r = host?.configRepos?.find(r => r.name === config.configRepos.find(c => c.nixos)?.name);
   return <div><b>{name}</b> <span className={host?.online ? 'ok' : host ? 'error' : 'info'}>● {host?.online ? 'online' : host ? 'unavailable' : 'connecting'}</span>
-    {host?.online && <><p>{host.health?.checks.find(c => c.name === 'Uptime / load')?.detail || 'uptime unavailable'}</p><p><span className="info">profile</span> {n?.specialization || 'unknown'} · gen {n?.generation || '—'} · config {short(r?.lastCommit?.hash)} {r?.dirty ? `M${r.dirty}` : r?.lastCommit ? 'clean' : 'unavailable'}</p><p className={n?.deployedRevision && n.deployedRevision !== r?.lastCommit?.hash ? 'warning' : 'info'}>deployed {short(n?.deployedRevision)} → HEAD {short(r?.lastCommit?.hash)}</p>
+    {host?.online && <><p>{host.health?.checks.find(c => c.name === 'Uptime / load')?.detail || 'uptime unavailable'}</p><p><span className="info">profile</span> {n?.specialization || 'unknown'}</p>
       {host.health?.checks.filter(c => c.level !== 'ok' && /^(RAM|Disk |Uptime)/.test(c.name)).map(c => <p className="warning" key={c.name}>{c.name}: {c.detail}</p>)}</>}
     {host && !host.online && <p className="info">{host.error}</p>}</div>;
 }
@@ -28,7 +27,7 @@ function Recent({ pairs }) {
   const unique = entries.filter((c, i) => entries.findIndex(other => other.hash === c.hash && other.project === c.project) === i);
   const today = [...new Set(entries.filter(c => c.ageSeconds < 86400).map(c => c.project))];
   const week = [...new Set(entries.map(c => c.project))];
-  return <><p><b>24h</b> {today.join(' · ') || 'no commits observed'} <span className="info">/ 7d {week.length} projects · {unique.length} commits observed (capped at 50/host/repo)</span></p>
+  return <><p><b>24h</b> {today.join(' · ') || 'no commits observed'} <span className="info">/ 7d {week.length} projects · {unique.length} unique commits collected · showing latest {Math.min(unique.length, 3)} (collection limit: 50 commits per repository per host)</span></p>
     {unique.slice(0, 3).map(c => <p key={`${c.project}-${c.hash}`}><span className="info">{age(c.ageSeconds)}</span> · {c.project} · {short(c.hash)} {c.subject}</p>)}
     <p className="info">dirty: {pairs.filter(p => p.dirty).map(p => p.name).join(' · ') || 'none'}</p>
     {pairs.flatMap(p => p.sides.filter(s => s.sessions.length).map(s => <p key={`${p.name}-${s.host}`}>Zellij {s.host} · {p.name} · {s.sessions.join(', ')} · {s.repo.path}</p>)).slice(0, 3)}</>;
@@ -38,7 +37,7 @@ function Main({ hosts, pairs, inspect, open }) {
   const attention = [...hosts.filter(h => !h.online).map(h => ({ text: `${h.host} unavailable`, tab: 0 })),
     ...(babel?.services || []).filter(s => ['failed', 'degraded'].includes(s.state)).map(s => ({ text: s.diagnosis, tab: 2 })),
     ...pairs.filter(p => p.state === 'diverged' || p.sides.some(s => s.repo?.behind || s.repo?.level === 'error')).map(p => ({ text: `${p.name} ${p.state === 'diverged' ? 'diverged' : p.sides.some(s => s.repo?.level === 'error') ? 'repository check failed' : 'behind upstream'}`, tab: 1 }))].slice(0, 3);
-  return <div className="main-view"><Section title="Hosts"><div className="two-col">{['babel', 'waka'].map(name => <HostSummary key={name} name={name} host={hosts.find(h => h.host === name)} />)}</div></Section>
+  return <div className="main-view"><Section title="Hosts"><div className="two-col">{['babel', 'waka'].map(name => <HostSummary key={name} name={name} host={hosts.find(h => h.host === name)} />)}</div><p>{runningConfigComparison(hosts)}</p></Section>
     <Section title="Projects" className="main-projects"><div className="project-row table-heading"><span>repository</span><span>babel</span><span>waka</span><span>relationship</span></div>{pairs.slice(0, 6).map(p => <button className="project-row" key={p.name} onClick={() => inspect(p.name)}><b>{p.name}</b>{p.sides.map(s => <CompactRepo side={s} key={s.host} />)}<span className={p.level}>{p.level === 'ok' ? '✓' : '›'} {p.state}</span></button>)}{pairs.length > 6 && <button onClick={() => open(1)}>+ {pairs.length - 6} more</button>}</Section>
     <div className="bottom-grid"><Section title="Recent work"><Recent pairs={pairs} /></Section><Section title="Attention">{attention.length ? attention.map((a, i) => <p key={i}><button className="warning" onClick={() => open(a.tab)}>! {a.text}</button></p>) : <p className={hosts.length ? 'ok' : 'info'}>{hosts.length ? '✓ No actionable failures observed' : 'Waiting for host evidence'}</p>}</Section></div></div>;
 }
